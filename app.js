@@ -337,7 +337,7 @@ function easeOutBounce (t, b, c, d) {
     return c * (7.5625 * (t -= 2.625 / 2.75) * t + 0.984375) + b;
   }
 }
-const game = new Game ();
+let game = new Game ();
 
 const objectReturn = (
   object,
@@ -407,15 +407,19 @@ const roundPlayer = (socket, player, game) => {
   }, 100);
 };
 io.sockets.on ('connection', function (socket) {
+  console.log ('nouvelle connexion');
+
   if (game.players.length >= 2) {
     io.to (socket.id).emit ('gameFull');
   } else {
+    console.log ('on aoute un joueur');
+
     const player = game.addPlayer (socket.id);
-    game.message = 'waiting for opponent';
+    game.message = 'waiting for opponent 1/2';
     socket.emit ('gameInit', {player, game});
 
     if (game.players.length === 2) {
-      game.message = ' the game is going to start in few second';
+      game.message = ' the game is going to start in few second 2/2';
       io.emit ('gameWillStart', game);
       setTimeout (() => {
         game.startGame ();
@@ -446,6 +450,8 @@ io.sockets.on ('connection', function (socket) {
             p.id !== player.id &&
             p.deck.cardPlayed.value === player.deck.cardPlayed.value
         );
+        console.log ('weshh cest la meme ou pas !', playerLost);
+
         if (playerLost) {
           const playerLost = game.players[1];
           console.log ('cest la même carte !', player.deck.cardPlayed);
@@ -501,6 +507,7 @@ io.sockets.on ('connection', function (socket) {
           p.id !== player.id &&
           p.deck.cardPlayed.value === player.deck.cardPlayed.value
       );
+      // get totem without the same card
       if (!playerSameCard) {
         console.log ("personne n'a la meme carte :p");
         const bunchCards = game.players.reduce ((cards, p) => {
@@ -560,6 +567,7 @@ io.sockets.on ('connection', function (socket) {
         radius: 80,
       };
       const checkDropCard = checkCollision (positionBunch, player.drawCard);
+      // card go to goal
       if (checkDropCard && player.isPlaying === true) {
         objectReturn (
           player.drawCard,
@@ -581,7 +589,7 @@ io.sockets.on ('connection', function (socket) {
           }
         );
       } else {
-        console.log ('on repars au départ à false');
+        //card return deck
         const intervalId = objectReturn (
           player.drawCard,
           basePosition,
@@ -596,6 +604,7 @@ io.sockets.on ('connection', function (socket) {
         });
       }
     }
+    // totem return origin
     if (totem.playerMove) {
       if (player.id === totem.playerMove.id) {
         totem.setPlayerMove (null);
@@ -615,10 +624,18 @@ io.sockets.on ('connection', function (socket) {
     io.emit ('update', game);
   });
   socket.on ('disconnect', () => {
-    console.log ('disconnect', socket.id);
+    const time = 4000;
+    io.emit ('message', {message: 'someone leave the game so you won', time});
+    io.emit ('gameStop');
+
+    const newGame = new Game ();
     const {index} = searchPlayer (socket.id, game);
     game.players.splice (index, 1);
-    io.emit ('update', game);
+    const player = newGame.addPlayer (game.players[0].id);
+    newGame.message = 'someone leave the game, waiting for opponent 1/2';
+    game = newGame;
+    console.log ('on aoute un joueur');
+    io.emit ('gameInit', {player, game});
   });
 });
 module.exports = {app: app, server: server};
