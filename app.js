@@ -36,7 +36,7 @@ var server = require ('http').Server (app);
 var socketio = require ('socket.io');
 const io = socketio (server);
 const players = [];
-const deck = [
+const gameCards = [
   1,
   1,
   1,
@@ -113,10 +113,10 @@ const deck = [
 class Game {
   constructor () {
     this.players = [];
-    this.deck = deck;
     this.width = 1100;
     this.height = 700;
-
+    this.gameCards = [...gameCards];
+    console.log (gameCards);
     this.round = 0;
     this.start = false;
     this.message = '';
@@ -159,12 +159,12 @@ class Game {
   }
 
   distributeCards () {
-    const cardsByPlayer = this.deck.length / this.players.length;
+    const cardsByPlayer = this.gameCards.length / this.players.length;
     this.players.forEach (player => {
       const deckPlayer = [];
-      for (let pas = 0; pas < cardsByPlayer; pas++) {
-        const random = Math.random () * deck.length;
-        const value = this.deck.splice (random, 1)[0];
+      for (let x = 0; x < cardsByPlayer; x++) {
+        const random = Math.random () * this.gameCards.length;
+        const value = this.gameCards.splice (random, 1)[0];
 
         const num = Math.floor (Math.random () * 8) + 1; // this will get a number between 1 and 99;
         const rotation = num * (Math.floor (Math.random () * 2) == 1 ? 1 : -1);
@@ -296,7 +296,6 @@ class Totem {
     this.position = position;
     this.radius = 40;
     this.playerMove = playerMove;
-    this.intervalId = () => null;
   }
   setPosition (position) {
     this.position = position;
@@ -420,11 +419,11 @@ io.sockets.on ('connection', function (socket) {
 
     if (game.players.length === 2) {
       game.message = ' the game is going to start in few second 2/2';
-      io.emit ('gameWillStart', game);
       setTimeout (() => {
         game.startGame ();
 
         io.emit ('gameStart', game);
+        io.emit ('update', {...game, deck: true});
       }, 4000);
     }
   }
@@ -433,9 +432,7 @@ io.sockets.on ('connection', function (socket) {
     const {player} = searchPlayer (socket.id, game);
     const totem = game.totem;
     const checkMoveTotem = checkCollision (player, totem);
-    if (checkMoveTotem && player.click) {
-      totem.intervalId ();
-      time = 0;
+    if (checkMoveTotem && player.click && !player.drawCard.move) {
       const totemPosition = {
         x: totem.position.x - (player.position.x - x),
         y: totem.position.y - (player.position.y - y),
@@ -450,36 +447,45 @@ io.sockets.on ('connection', function (socket) {
             p.id !== player.id &&
             p.deck.cardPlayed.value === player.deck.cardPlayed.value
         );
-        console.log ('weshh cest la meme ou pas !', playerLost);
-
+        //someone win a round
         if (playerLost) {
-          const playerLost = game.players[1];
-          console.log ('cest la même carte !', player.deck.cardPlayed);
           const bunchCards = player.deck.bunchCards;
-          player.deck.cardPlayed.value = null;
-          player.goal.setTotemIn (true);
-          player.isPlaying = false;
-          clearInterval (playerIntervalId);
           const message = `player${playerLost.type} +${bunchCards.length} card noob`;
           const time = 4000;
           io.emit ('message', {message, time});
-          /*  objectReturn (bunchCards[0], playerLost.goal.position,150, () =>
-            io.emit ('update', game)
-          );*/
+          bunchCards.forEach ((card, i) =>
+            setTimeout (() => {
+              objectReturn (
+                card,
+                playerLost.goal.position,
+                150,
+                () => io.emit ('update', {deck: true, players: game.players}),
+                () => console.log ('cesr finiii')
+              );
+            }, 200 * i)
+          );
           setTimeout (() => {
-            const looserCards = player.deck.cleanBunch ();
-            playerLost.deck.setBunch (looserCards);
+            const cardsForLooser = player.deck.cleanBunch ();
+            playerLost.deck.cardPlayed.value = null;
+            playerLost.isPlaying = false;
+            playerLost.timer = 0;
+
+            clearInterval (playerIntervalId);
+            playerLost.deck.addCards (cardsForLooser);
             game.round = playerLost.type;
             playerLost.isPlaying = true;
+            playerLost.timer = 0;
             timePlayer = 0;
-            io.emit ('update', game);
-          }, time);
+
+            io.emit ('update', {...game});
+          }, 2000);
         }
       } else {
         player.goal.setTotemIn (false);
       }
       io.emit ('update', {totem: game.totem});
     }
+    let drawCard = null;
     if (player.drawCard.move && player.click) {
       player.drawCard.position = {x, y};
       player.drawCard.rotation = player.getFirstCard ().rotation;
@@ -497,62 +503,62 @@ io.sockets.on ('connection', function (socket) {
 
     const checkDrawCard = checkCollision (player.goal, click);
     if (checkDrawCard && player.deck.cards.length > 0) {
+      console.log ('number card', player.deck.cards.length);
       player.drawCard = new Card ({position: data, move: true});
-    }
-
-    const checkMoveTotem = checkCollision (player, game.totem);
-    if (checkMoveTotem) {
-      const playerSameCard = game.players.find (
-        p =>
-          p.id !== player.id &&
-          p.deck.cardPlayed.value === player.deck.cardPlayed.value
-      );
-      // get totem without the same card
-      if (!playerSameCard) {
-        console.log ("personne n'a la meme carte :p");
-        const bunchCards = game.players.reduce ((cards, p) => {
-          return [...cards, ...p.deck.bunchCards];
-        }, []);
-        clearInterval (playerIntervalId);
-        const message = `player${player.type} +${bunchCards.length} card noob`;
-        const time = 4000;
-        io.emit ('message', {message, time});
-        bunchCards.forEach ((card, i) =>
-          setTimeout (() => {
-            objectReturn (
-              card,
-              player.goal.position,
-              150,
-              () => io.emit ('update', {deck: true, players: game.players}),
-              () => console.log ('cesr finiii')
-            );
-          }, 200 * i)
+      io.emit ('update', {players});
+    } else {
+      const checkMoveTotem = checkCollision (player, game.totem);
+      if (checkMoveTotem) {
+        const playerSameCard = game.players.find (
+          p =>
+            p.id !== player.id &&
+            p.deck.cardPlayed.value === player.deck.cardPlayed.value
         );
-        setTimeout (() => {
-          let cardsForLooser = [];
-          game.players.forEach (p => {
-            if (p.id !== player.id) {
-              p.deck.cardPlayed.value = null;
-              p.isPlaying = false;
-              p.timer = 0;
-              cardsForLooser = [...cardsForLooser, p.deck.cleanBunch ()];
-            }
-          });
+        // get totem without the same card
+        if (!playerSameCard) {
+          const bunchCards = game.players.reduce ((cards, p) => {
+            return [...cards, ...p.deck.bunchCards];
+          }, []);
           clearInterval (playerIntervalId);
-          cardsForLooser = [...cardsForLooser, player.deck.cleanBunch ()];
-          player.deck.addCards (cardsForLooser);
-          game.round = player.type;
-          player.isPlaying = true;
-          player.timer = 0;
-          timePlayer = 0;
-          game.players.forEach (p => console.log (p.deck.bunchCards));
+          const message = `player${player.type} +${bunchCards.length} card noob`;
+          const time = 4000;
+          io.emit ('message', {message, time});
+          io.emit ('animation', {players: game.players, playerLost: player});
 
-          io.emit ('update', {...game});
-        }, 1000);
+          /* bunchCards.forEach ((card, i) =>
+            setTimeout (() => {
+              objectReturn (
+                card,
+                player.goal.position,
+                150,
+                () => io.emit ('update', {deck: true, players: game.players}),
+                () => console.log ('cesr finiii')
+              );
+            }, 100)
+          );
+          setTimeout (() => {
+            let cardsForLooser = [];
+            game.players.forEach (p => {
+              if (p.id !== player.id) {
+                p.deck.cardPlayed.value = null;
+                p.isPlaying = false;
+                p.timer = 0;
+                cardsForLooser = [...cardsForLooser, p.deck.cleanBunch ()];
+              }
+            });
+            clearInterval (playerIntervalId);
+            player.deck.addCards (cardsForLooser);
+            game.round = player.type;
+            player.isPlaying = true;
+            player.timer = 0;
+            timePlayer = 0;
+  
+            io.emit ('update', {...game});
+          }, 2000);*/
+        }
       }
+      io.emit ('update', {players: game.players});
     }
-
-    io.emit ('update', {players: game.players});
   });
   socket.on ('mouseUp', () => {
     const {player} = searchPlayer (socket.id, game);
@@ -624,18 +630,22 @@ io.sockets.on ('connection', function (socket) {
     io.emit ('update', game);
   });
   socket.on ('disconnect', () => {
-    const time = 4000;
-    io.emit ('message', {message: 'someone leave the game so you won', time});
-    io.emit ('gameStop');
-
     const newGame = new Game ();
-    const {index} = searchPlayer (socket.id, game);
-    game.players.splice (index, 1);
-    const player = newGame.addPlayer (game.players[0].id);
-    newGame.message = 'someone leave the game, waiting for opponent 1/2';
+    console.log ('disco ?');
+
+    clearInterval (playerIntervalId);
+
+    if (game.players.length > 1) {
+      console.log ('un joueur ce deco');
+      const time = 3000;
+      io.emit ('gameStop');
+      const {index} = searchPlayer (socket.id, game);
+      game.players.splice (index, 1);
+      const player = newGame.addPlayer (game.players[0].id);
+      newGame.message = 'someone leave the game, waiting for opponent 1/2';
+      setTimeout (() => io.emit ('gameInit', {player, newGame}), 3000);
+    }
     game = newGame;
-    console.log ('on aoute un joueur');
-    io.emit ('gameInit', {player, game});
   });
 });
 module.exports = {app: app, server: server};
