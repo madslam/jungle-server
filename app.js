@@ -111,14 +111,15 @@ const gameCards = [
   18,
 ];
 class Game {
-  constructor () {
+  constructor({id}) {
+    this.id = id;
     this.players = [];
     this.width = 1100;
-    this.height = 700;
+    this.height = 800;
     this.gameCards = [...gameCards];
-    console.log ('lzq carrte', gameCards.length);
     this.round = 0;
     this.start = false;
+    this.stop = false;
     this.message = '';
     this.totem = new Totem ({
       position: {x: this.width / 2, y: this.height / 2},
@@ -131,21 +132,30 @@ class Game {
     if (type === 1) {
       goal.position = {
         x: this.width / 2,
-        y: this.height - 100,
+        y: this.height - this.height / 8,
       };
       deck.positionBunch = {
         x: this.width / 2,
-        y: this.height - 200,
+        y: this.height - this.height / 4,
+      };
+
+      deck.healthBarPosition = {
+        x: this.width / 2,
+        y: this.height - this.height / 40,
       };
     }
     if (type === 2) {
       goal.position = {
         x: this.width / 2,
-        y: 100,
+        y: this.height / 8,
       };
       deck.positionBunch = {
         x: this.width / 2,
-        y: 200,
+        y: this.height / 4,
+      };
+      deck.healthBarPosition = {
+        x: this.width / 2,
+        y: this.height / 40,
       };
     }
     const player = new Player ({
@@ -185,23 +195,30 @@ class Game {
     this.players[this.round - 1].isPlaying = true;
     this.start = true;
   }
-  looseRound (playerType) {
-    this.players[playerType];
+  isGameFinish () {
+    const playersWin = this.players.reduce ((winners, p) => {
+      if (p.deck.cards.length === 0 && p.deck.bunchCards.length === 0) {
+        return [...winners, p];
+      }
+      return winners;
+    }, []);
+    return playersWin;
   }
   nextRound () {
-    if (this.round === 1) {
-      this.players[0].isPlaying = false;
+    const newRound = this.round + 1 > this.players.length ? 1 : this.round + 1;
 
-      this.round = 2;
-      this.players[1].isPlaying = true;
-      return this.players[1];
-    }
-    if (this.round === 2) {
-      this.players[1].isPlaying = false;
+    const nextPlayer = this.players[newRound - 1];
 
-      this.round = 1;
-      this.players[0].isPlaying = true;
-      return this.players[0];
+    if (nextPlayer.deck.cards.length > 0) {
+      const currentPlayer = this.players[this.round - 1];
+      currentPlayer.isPlaying = false;
+      this.round = newRound;
+
+      nextPlayer.isPlaying = true;
+      return nextPlayer;
+    } else {
+      this.round = newRound;
+      this.nextRound ();
     }
   }
 }
@@ -210,7 +227,6 @@ class Card {
     this.position = position;
     this.move = move;
     this.radius = 80;
-    this.intervalId = () => null;
     this.value = value;
     this.rotation = rotation;
   }
@@ -239,7 +255,7 @@ class Player {
     this.click = click;
   }
   setDeckCards (cards) {
-    this.deck.cards = cards;
+    this.deck.addCards (cards);
   }
   getFirstCard () {
     return this.deck.cards[this.deck.cards.length - 1];
@@ -255,6 +271,8 @@ class Deck {
     this.cards = [];
     this.bunchCards = [];
     this.cardPlayed = new Card ({value: null});
+    this.healthBarPosition = null;
+    this.healthBarValue = 0;
   }
 
   popCards () {
@@ -262,6 +280,7 @@ class Deck {
     card.position = this.positionBunch;
     this.bunchCards.push (card);
     this.cardPlayed = card;
+    this.healthBarValue = this.cards.length / gameCards.length * 100;
   }
   cleanBunch () {
     const cards = this.bunchCards;
@@ -276,6 +295,7 @@ class Deck {
   }
   addCards (newCards) {
     this.cards = [...newCards, ...this.cards];
+    this.healthBarValue = this.cards.length / gameCards.length * 100;
   }
 }
 class Goal {
@@ -336,7 +356,6 @@ function easeOutBounce (t, b, c, d) {
     return c * (7.5625 * (t -= 2.625 / 2.75) * t + 0.984375) + b;
   }
 }
-let game = new Game ();
 
 const objectReturn = (
   object,
@@ -386,8 +405,7 @@ const objectReturn = (
   return timer;
 };
 
-let playerIntervalId = null;
-
+/*
 const roundPlayer = (socket, player, game) => {
   let timePlayer = 0;
 
@@ -404,33 +422,50 @@ const roundPlayer = (socket, player, game) => {
     player.timer = timePlayer / 10;
     socket.emit ('update', game);
   }, 100);
-};
+};*/
+
+const rooms = [{name: 'room1', players: []}, {name: 'room2', players: []}];
 io.sockets.on ('connection', function (socket) {
   console.log ('nouvelle connexion');
+  const room = rooms.find (r => r.players.length < 2);
 
-  if (game.players.length >= 2) {
+  if (!room) {
+    console.log ('pas de room de dispo');
     io.to (socket.id).emit ('gameFull');
   } else {
-    console.log ('on aoute un joueur');
+    if (!room.game) {
+      room.game = new Game ({id: socket.id});
+      room.name = 'room' + socket.id;
+      room.game.message = 'waiting for opponent 1/2';
+      io.to (room.name).emit ('gameInit', {game: room.game});
+    }
+    const {game} = room;
+
+    socket.join (room.name);
+    room.players = [...room.players, 1];
 
     const player = game.addPlayer (socket.id);
     game.message = 'waiting for opponent 1/2';
     socket.emit ('gameInit', {player, game});
-
     if (game.players.length === 2) {
       game.message = ' the game is going to start in few second 2/2';
-      socket.emit ('gameWillStart', {player, game});
+      io.to (room.name).emit ('gameWillStart', game);
 
       setTimeout (() => {
         game.startGame ();
 
-        io.emit ('gameStart', game);
-        io.emit ('update', {...game, deck: true});
+        io.to (room.name).emit ('gameStart', game);
+        io.to (room.name).emit ('update', {...game, deck: true});
       }, 4000);
     }
   }
 
   socket.on ('mouse', function({x, y}) {
+    const roomName = Object.keys (socket.rooms)[1];
+    const room = rooms.find (r => r.name === roomName);
+    const game = room.game;
+    //console.log (room, game);
+
     const {player} = searchPlayer (socket.id, game);
     const totem = game.totem;
     const checkMoveTotem = checkCollision (player, totem);
@@ -444,61 +479,69 @@ io.sockets.on ('connection', function (socket) {
       totem.setPlayerMove (player);
 
       const checkTotemGoal = checkCollision (totem, player.goal);
-      if (checkTotemGoal && player.deck.cardPlayed != null) {
+      if (checkTotemGoal && player.deck.cardPlayed != null && !game.stop) {
         const playerLost = game.players.find (
           p =>
             p.id !== player.id &&
+            (p.deck.cardPlayed.value !== null &&
+              player.deck.cardPlayed.value !== null) &&
             p.deck.cardPlayed.value === player.deck.cardPlayed.value
         );
-        //someone win a round
+        //player win a round
         if (playerLost) {
-          const bunchCards = player.deck.bunchCards;
-          const message = `player${playerLost.type} +${bunchCards.length} card noob`;
-          const time = 4000;
-          io.emit ('message', {message, time});
-          bunchCards.forEach ((card, i) =>
-            setTimeout (() => {
-              objectReturn (
-                card,
-                playerLost.goal.position,
-                150,
-                () => io.emit ('update', {deck: true, players: game.players}),
-                () => console.log ('cesr finiii')
-              );
-            }, 200 * i)
-          );
-          setTimeout (() => {
-            const cardsForLooser = player.deck.cleanBunch ();
-            playerLost.deck.cardPlayed.value = null;
-            playerLost.isPlaying = false;
-            playerLost.timer = 0;
+          io.to (roomName).emit ('animation', {
+            players: game.players,
+            position: playerLost.goal.position,
+          });
+          game.stop = true;
+          game.players.forEach (p => {
+            p.isPlaying = false;
+          });
+          const cardsForLooser = [
+            ...player.deck.bunchCards,
+            ...playerLost.deck.bunchCards,
+          ];
+          player.deck.cleanBunch ();
+          playerLost.deck.cleanBunch ();
+          playerLost.deck.addCards (cardsForLooser);
 
-            clearInterval (playerIntervalId);
-            playerLost.deck.addCards (cardsForLooser);
+          const playersWin = game.isGameFinish ();
+          if (playersWin.length > 0) {
+            io.to (roomName).emit ('gameFinish', {playersWin});
+          } else {
+            const message = `player${playerLost.type} +${cardsForLooser.length} card noob`;
+            const time = 4000;
+            io.to (roomName).emit ('message', {message, time});
             game.round = playerLost.type;
             playerLost.isPlaying = true;
-            playerLost.timer = 0;
-            timePlayer = 0;
-
-            io.emit ('update', {...game});
+          }
+          setTimeout (() => {
+            game.stop = false;
+            io
+              .to (roomName)
+              .emit ('update', {...game, bunchCards: true, deck: true});
           }, 2000);
         }
       } else {
         player.goal.setTotemIn (false);
       }
-      io.emit ('update', {totem: game.totem});
+      io.to (roomName).emit ('update', {totem: game.totem});
     }
     let drawCard = null;
     //someone moove a card
     if (player.drawCard.move && player.click) {
       player.drawCard.position = {x, y};
       player.drawCard.rotation = player.getFirstCard ().rotation;
-      io.emit ('update', {card: true, players: game.players});
+      io.to (roomName).emit ('update', {card: true, players: game.players});
     }
     player.setPosition ({x, y});
-    io.emit ('update', {players: game.players});
+    io.to (roomName).emit ('update', {players: game.players});
   });
   socket.on ('mouseDown', data => {
+    const roomName = Object.keys (socket.rooms)[1];
+    const room = rooms.find (r => r.name === roomName);
+    const game = room.game;
+
     const {player} = searchPlayer (socket.id, game);
     const click = {
       position: data,
@@ -509,12 +552,11 @@ io.sockets.on ('connection', function (socket) {
     const checkDrawCard = checkCollision (player.goal, click);
     //someone take a card
     if (checkDrawCard && player.deck.cards.length > 0) {
-      console.log ('number card', player.deck.cards.length);
       player.drawCard = new Card ({position: data, move: true});
-      io.emit ('update', {players, card: true});
+      io.to (roomName).emit ('update', {players, card: true});
     } else {
       const checkMoveTotem = checkCollision (player, game.totem);
-      if (checkMoveTotem) {
+      if (checkMoveTotem && !game.stop) {
         const playerSameCard = game.players.find (
           p =>
             p.id !== player.id &&
@@ -525,38 +567,48 @@ io.sockets.on ('connection', function (socket) {
           const bunchCards = game.players.reduce ((cards, p) => {
             return [...cards, ...p.deck.bunchCards];
           }, []);
-          clearInterval (playerIntervalId);
-          const message = `player${player.type} +${bunchCards.length} card noob`;
-          const time = 4000;
-          io.emit ('message', {message, time});
-          io.emit ('animation', {
+          game.players.forEach (p => {
+            p.isPlaying = false;
+          });
+          game.stop = true;
+          io.to (roomName).emit ('animation', {
             players: game.players,
             position: player.goal.position,
           });
-          let cardsForLooser = [];
           game.players.forEach (p => {
-            p.deck.cardPlayed.value = null;
-            p.isPlaying = false;
-            p.timer = 0;
-            cardsForLooser = [...cardsForLooser, p.deck.cleanBunch ()];
+            p.deck.cleanBunch ();
           });
+          const time = 4000;
+          player.deck.addCards (bunchCards);
 
-          setTimeout (() => {
-            clearInterval (playerIntervalId);
-            player.deck.addCards (cardsForLooser);
+          const playersWin = game.isGameFinish ();
+
+          if (playersWin.length > 0) {
+            io.to (roomName).emit ('gameFinish', {playersWin});
+          } else {
+            const message = `player${player.type} +${bunchCards.length} card noob`;
+            io.to (roomName).emit ('message', {message, time});
             game.round = player.type;
             player.isPlaying = true;
             player.timer = 0;
             timePlayer = 0;
-
-            io.emit ('update', {...game, bunchCards: true, deck: true});
+          }
+          setTimeout (() => {
+            game.stop = false;
+            io
+              .to (roomName)
+              .emit ('update', {...game, bunchCards: true, deck: true});
           }, 2000);
         }
       }
-      io.emit ('update', {players: game.players});
+      io.to (roomName).emit ('update', {players: game.players});
     }
   });
   socket.on ('mouseUp', () => {
+    const roomName = Object.keys (socket.rooms)[1];
+    const room = rooms.find (r => r.name === roomName);
+    const game = room.game;
+
     const {player} = searchPlayer (socket.id, game);
     const totem = game.totem;
 
@@ -572,52 +624,30 @@ io.sockets.on ('connection', function (socket) {
       };
       const checkDropCard = checkCollision (positionBunch, player.drawCard);
       // card go to goal
-      if (checkDropCard && player.isPlaying === true) {
-        /* objectReturn (
-          player.drawCard,
-          positionBunch.position,
-          100,
-          () => io.emit ('update', {players: game.players}),
-          () => {
-            const nextPlayer = game.nextRound ();
-            timePlayer = 0;
-            clearInterval (playerIntervalId);
-            //roundPlayer (io, nextPlayer, game);
-            player.deck.popCards (player.drawCard.position);
-            player.drawCard.position = null;
-            basePosition = positionBunch;
-            io.emit ('update', {
-              players: game.players,
-              deck: player.deck,
-              bunchCards: true,
-            });
-          }
-        );*/
-        io.emit ('animation2', {
+      if (checkDropCard && player.isPlaying === true && !game.stop) {
+        game.stop = true;
+        io.to (roomName).emit ('animation2', {
           players: game.players,
           player,
           position: positionBunch.position,
         });
-
-        const nextPlayer = game.nextRound ();
-        timePlayer = 0;
-        clearInterval (playerIntervalId);
-        //roundPlayer (io, nextPlaye
+        game.nextRound ();
         player.deck.popCards (positionBunch.position);
         player.drawCard.position = null;
         basePosition = positionBunch;
 
         setTimeout (() => {
-          io.emit ('update', {
+          game.stop = false;
+          io.to (roomName).emit ('update', {
             players: game.players,
             deck: player.deck,
             bunchCards: true,
             card: true,
           });
-        }, 900);
+        }, 1000);
       } else {
         //card return deck
-        io.emit ('animation2', {
+        io.to (roomName).emit ('animation2', {
           players: game.players,
           player,
           position: basePosition,
@@ -625,7 +655,7 @@ io.sockets.on ('connection', function (socket) {
         player.drawCard.position = basePosition;
 
         setTimeout (() => {
-          io.emit ('update', {
+          io.to (roomName).emit ('update', {
             players: game.players,
             card: true,
           });
@@ -642,30 +672,35 @@ io.sockets.on ('connection', function (socket) {
           y: height / 2,
         };
         const intervalId = objectReturn (totem, basePosition, 300, () =>
-          io.emit ('update', {totem})
+          io.to (roomName).emit ('update', {totem})
         );
         totem.intervalId = () => clearInterval (intervalId);
       }
     }
     player.setClick (false);
 
-    io.emit ('update', game);
+    io.to (roomName).emit ('update', game);
   });
   socket.on ('disconnect', () => {
-    const newGame = new Game ();
-    console.log ('disco ?');
+    const roomName = Object.keys (socket.rooms)[1];
+    const room = rooms.find (r => r.name === roomName);
+    const game = room.game;
 
-    clearInterval (playerIntervalId);
+    const newGame = new Game ({id: null});
+    console.log ('disco ?');
 
     if (game.players.length > 1) {
       console.log ('un joueur ce deco');
       const time = 3000;
-      io.emit ('gameStop');
+      io.to (roomName).emit ('gameStop');
       const {index} = searchPlayer (socket.id, game);
       game.players.splice (index, 1);
       const player = newGame.addPlayer (game.players[0].id);
       newGame.message = 'someone leave the game, waiting for opponent 1/2';
-      setTimeout (() => io.emit ('gameInit', {player, newGame}), 3000);
+      setTimeout (
+        () => io.to (roomName).emit ('gameInit', {player, newGame}),
+        3000
+      );
     }
     game = newGame;
   });
