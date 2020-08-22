@@ -3,18 +3,27 @@ var express = require ('express');
 var path = require ('path');
 var cookieParser = require ('cookie-parser');
 var logger = require ('morgan');
+var reload = require ('express-reload');
 
 var app = express ();
 
-// view engine setup
-app.set ('views', path.join (__dirname, 'views'));
-app.set ('view engine', 'jade');
+const admin = require ('firebase-admin');
+
+const serviceAccount = require ('./jungle-speed-4f194-0598663160d6');
+var path = __dirname + '/app.js';
+
+app.use (reload (path));
+
+admin.initializeApp ({
+  credential: admin.credential.cert (serviceAccount),
+});
+
+const db = admin.firestore ();
 
 app.use (logger ('dev'));
 app.use (express.json ());
 app.use (express.urlencoded ({extended: false}));
 app.use (cookieParser ());
-app.use (express.static (path.join (__dirname, 'public')));
 
 // catch 404 and forward to error handler
 app.use (function (req, res, next) {
@@ -114,8 +123,8 @@ class Game {
   constructor({id}) {
     this.id = id;
     this.players = [];
-    this.width = 1100;
-    this.height = 800;
+    this.width = 900;
+    this.height = 900;
     this.gameCards = [...gameCards];
     this.round = 0;
     this.start = false;
@@ -124,6 +133,9 @@ class Game {
     this.totem = new Totem ({
       position: {x: this.width / 2, y: this.height / 2},
     });
+  }
+  findPlayer (type) {
+    return this.players.find (p => p.type === type);
   }
   addPlayer (id) {
     const type = this.players.length + 1;
@@ -158,6 +170,36 @@ class Game {
         y: this.height / 40,
       };
     }
+    if (type === 3) {
+      goal.position = {
+        x: this.width / 8,
+        y: this.height / 2,
+      };
+      deck.positionBunch = {
+        x: this.width / 4,
+        y: this.height / 2,
+      };
+
+      deck.healthBarPosition = {
+        x: this.width / 40,
+        y: this.height / 2,
+      };
+    }
+    if (type === 4) {
+      goal.position = {
+        y: this.height / 2,
+        x: this.width - this.width / 8,
+      };
+      deck.positionBunch = {
+        y: this.height / 2,
+        x: this.width - this.width / 4,
+      };
+
+      deck.healthBarPosition = {
+        y: this.height / 2,
+        x: this.width - this.width / 40,
+      };
+    }
     const player = new Player ({
       id,
       type,
@@ -180,7 +222,8 @@ class Game {
         const rotation = num * (Math.floor (Math.random () * 2) == 1 ? 1 : -1);
         const newCard = new Card ({
           move: false,
-          position: null,
+          position: player.goal.position,
+          show: false,
           value,
           rotation,
         });
@@ -195,6 +238,7 @@ class Game {
     this.players[this.round - 1].isPlaying = true;
     this.start = true;
   }
+
   isGameFinish () {
     const playersWin = this.players.reduce ((winners, p) => {
       if (p.deck.cards.length === 0 && p.deck.bunchCards.length === 0) {
@@ -223,10 +267,11 @@ class Game {
   }
 }
 class Card {
-  constructor({position, move, value, rotation}) {
+  constructor({position, move, value, rotation, show}) {
     this.position = position;
     this.move = move;
     this.radius = 80;
+    this.show = show;
     this.value = value;
     this.rotation = rotation;
   }
@@ -246,7 +291,12 @@ class Player {
     this.isPlaying = false;
     this.goal = goal;
     this.timer = 0;
-    this.drawCard = new Card ({position: null, move: false, value: null});
+    this.drawCard = new Card ({
+      position: null,
+      show: false,
+      move: false,
+      value: null,
+    });
   }
   setPosition (position) {
     this.position = position;
@@ -257,8 +307,25 @@ class Player {
   setDeckCards (cards) {
     this.deck.addCards (cards);
   }
-  getFirstCard () {
-    return this.deck.cards[this.deck.cards.length - 1];
+
+  getDrawCard () {
+    if (!this.drawCard.position) {
+      this.drawCard = this.deck.getFirstCard ();
+    }
+    this.drawCard.move = true;
+  }
+  drawCardReturn () {
+    this.drawCard.position = this.goal.position;
+  }
+  popDrawCard () {
+    this.drawCard.show = true;
+    this.deck.addBunchCard (this.drawCard);
+    this.drawCard = new Card ({
+      position: null,
+      move: false,
+      show: false,
+      value: null,
+    });
   }
   setBunchCard (bunchCards) {
     this.bunchCards = bunchCards;
@@ -270,13 +337,14 @@ class Deck {
     this.positionBunch = null;
     this.cards = [];
     this.bunchCards = [];
-    this.cardPlayed = new Card ({value: null});
+    this.cardPlayed = new Card ({value: null, show: true});
     this.healthBarPosition = null;
     this.healthBarValue = 0;
   }
-
-  popCards () {
-    const card = this.cards.pop ();
+  getFirstCard () {
+    return this.cards.pop ();
+  }
+  addBunchCard (card) {
     card.position = this.positionBunch;
     this.bunchCards.push (card);
     this.cardPlayed = card;
@@ -290,8 +358,9 @@ class Deck {
   }
   setBunch (playerWinBunchCards) {
     this.cards = [...this.bunchCards, ...playerWinBunchCards, ...this.cards];
+    this.cards.forEach (c => (c.show = false));
     this.bunchCards = [];
-    this.cardPlayed = new Card ({value: null});
+    this.cardPlayed = new Card ({value: null, show: false});
   }
   addCards (newCards) {
     this.cards = [...newCards, ...this.cards];
@@ -424,53 +493,83 @@ const roundPlayer = (socket, player, game) => {
   }, 100);
 };*/
 
-const rooms = [{name: 'room1', players: []}, {name: 'room2', players: []}];
-io.sockets.on ('connection', function (socket) {
-  console.log ('nouvelle connexion');
-  const room = rooms.find (r => r.players.length < 2);
+const roomsServer = {};
+const MAX_PLAYERS = 4;
 
-  if (!room) {
-    console.log ('pas de room de dispo');
+const getRoom = async id => {
+  const roomRef = await db.collection ('rooms').doc (id).get ();
+
+  return roomRef.exists ? {...roomRef.data (), id: roomRef.id} : null;
+};
+
+io.sockets.on ('connection', async socket => {
+  const id = socket.handshake.query.id;
+  console.log ('nouvelle connexion', id);
+
+  if (!id) {
+    return;
+  }
+  const roomDB = await getRoom (id);
+
+  if (!roomDB) {
+    console.log ('la room nexiste pas');
+    io.to (socket.id).emit ('gameNotExist');
+    return;
+  }
+
+  if (roomDB.full) {
     io.to (socket.id).emit ('gameFull');
-  } else {
-    if (!room.game) {
-      room.game = new Game ({id: socket.id});
-      room.name = 'room' + socket.id;
-      room.game.message = 'waiting for opponent 1/2';
-      io.to (room.name).emit ('gameInit', {game: room.game});
-    }
-    const {game} = room;
+    return;
+  }
 
-    socket.join (room.name);
-    room.players = [...room.players, 1];
+  let roomServer = roomsServer[roomDB.id];
 
-    const player = game.addPlayer (socket.id);
-    game.message = 'waiting for opponent 1/2';
-    socket.emit ('gameInit', {player, game});
-    if (game.players.length === 2) {
-      game.message = ' the game is going to start in few second 2/2';
-      io.to (room.name).emit ('gameWillStart', game);
+  if (!roomServer) {
+    const newRoom = {
+      game: new Game ({id: roomDB.id}),
+      id: roomDB.id,
+      players: 0,
+    };
+    roomServer = newRoom;
+    roomsServer[roomDB.id] = newRoom;
+  }
+  socket.join (roomServer.id);
+  roomServer.players = roomServer.players + 1;
 
-      setTimeout (() => {
-        game.startGame ();
+  const {game} = roomServer;
+  const player = game.addPlayer (socket.id);
+  roomServer.game.message = `waiting for opponent ${roomServer.players}/${roomDB.numberPlayer}`;
 
-        io.to (room.name).emit ('gameStart', game);
-        io.to (room.name).emit ('update', {...game, deck: true});
-      }, 4000);
-    }
+  socket.emit ('gameInit', {player, game});
+
+  io.to (roomServer.id).emit ('gameAddPlayer', {game});
+
+  const roomRef = db.collection ('rooms').doc (roomDB.id);
+  const full = roomServer.players === roomDB.numberPlayer ? true : false;
+  await roomRef.update ({playersConnected: roomServer.players, full});
+
+  if (game.players.length === roomDB.numberPlayer) {
+    game.message =
+      ' all players are connected the game is going to start in few second';
+    io.to (roomServer.id).emit ('gameWillStart', game);
+    setTimeout (() => {
+      game.startGame ();
+
+      io.to (roomServer.id).emit ('gameStart', game);
+      io.to (roomServer.id).emit ('update', {...game, deck: true});
+    }, 4000);
   }
 
   socket.on ('mouse', function({x, y}) {
-    const roomName = Object.keys (socket.rooms)[1];
-    const room = rooms.find (r => r.name === roomName);
-    const game = room.game;
-    //console.log (room, game);
+    const roomID = Object.keys (socket.rooms)[1];
+    const room = roomsServer[roomID];
+    const {game} = room;
 
     const {player} = searchPlayer (socket.id, game);
     const totem = game.totem;
     const checkMoveTotem = checkCollision (player, totem);
     // check if totem move by player
-    if (checkMoveTotem && player.click && !player.drawCard.move) {
+    if (checkMoveTotem && player.click) {
       const totemPosition = {
         x: totem.position.x - (player.position.x - x),
         y: totem.position.y - (player.position.y - y),
@@ -489,7 +588,7 @@ io.sockets.on ('connection', function (socket) {
         );
         //player win a round
         if (playerLost) {
-          io.to (roomName).emit ('animation', {
+          io.to (roomID).emit ('animation', {
             players: game.players,
             position: playerLost.goal.position,
           });
@@ -503,43 +602,60 @@ io.sockets.on ('connection', function (socket) {
           ];
           player.deck.cleanBunch ();
           playerLost.deck.cleanBunch ();
+          cardsForLooser.forEach (c => (c.position = player.goal.position));
+
+          player.deck.addCards (bunchCards);
           playerLost.deck.addCards (cardsForLooser);
 
           const playersWin = game.isGameFinish ();
           if (playersWin.length > 0) {
-            io.to (roomName).emit ('gameFinish', {playersWin});
+            io.to (roomID).emit ('gameFinish', {playersWin});
           } else {
             const message = `player${playerLost.type} +${cardsForLooser.length} card noob`;
             const time = 4000;
-            io.to (roomName).emit ('message', {message, time});
+            io.to (roomID).emit ('message', {message, time});
             game.round = playerLost.type;
             playerLost.isPlaying = true;
           }
           setTimeout (() => {
             game.stop = false;
             io
-              .to (roomName)
+              .to (roomID)
               .emit ('update', {...game, bunchCards: true, deck: true});
           }, 2000);
         }
       } else {
         player.goal.setTotemIn (false);
       }
-      io.to (roomName).emit ('update', {totem: game.totem});
+      io.to (roomID).emit ('update', {totem: game.totem});
     }
-    let drawCard = null;
     //someone moove a card
-    if (player.drawCard.move && player.click) {
+    if (player.drawCard.move && !player.animationDrawCard && player.click) {
       player.drawCard.position = {x, y};
-      player.drawCard.rotation = player.getFirstCard ().rotation;
-      io.to (roomName).emit ('update', {card: true, players: game.players});
+      io.to (roomID).emit ('update', {card: true, players: game.players});
     }
     player.setPosition ({x, y});
-    io.to (roomName).emit ('update', {players: game.players});
+    io.to (roomID).emit ('update', {players: game.players});
+  });
+  socket.on ('animationDone', player => {
+    const roomID = Object.keys (socket.rooms)[1];
+    const room = roomsServer[roomID];
+    const game = room.game;
+    const playerDropCard = game.findPlayer (player.type);
+
+    playerDropCard.drawCard.move = false;
+    playerDropCard.animationDrawCard = false;
+
+    io.to (roomID).emit ('update', {
+      deck: true,
+      bunchCards: true,
+      card: true,
+      players: game.players,
+    });
   });
   socket.on ('mouseDown', data => {
-    const roomName = Object.keys (socket.rooms)[1];
-    const room = rooms.find (r => r.name === roomName);
+    const roomID = Object.keys (socket.rooms)[1];
+    const room = roomsServer[roomID];
     const game = room.game;
 
     const {player} = searchPlayer (socket.id, game);
@@ -551,9 +667,19 @@ io.sockets.on ('connection', function (socket) {
 
     const checkDrawCard = checkCollision (player.goal, click);
     //someone take a card
-    if (checkDrawCard && player.deck.cards.length > 0) {
-      player.drawCard = new Card ({position: data, move: true});
-      io.to (roomName).emit ('update', {players, card: true});
+    if (
+      !player.drawCard.move &&
+      !player.animationDrawCard &&
+      checkDrawCard &&
+      player.deck.cards.length > 0
+    ) {
+      player.getDrawCard ();
+      io.to (roomID).emit ('update', {
+        ...game,
+        players: game.players,
+        card: true,
+        goal: true,
+      });
     } else {
       const checkMoveTotem = checkCollision (player, game.totem);
       if (checkMoveTotem && !game.stop) {
@@ -571,7 +697,7 @@ io.sockets.on ('connection', function (socket) {
             p.isPlaying = false;
           });
           game.stop = true;
-          io.to (roomName).emit ('animation', {
+          io.to (roomID).emit ('animation', {
             players: game.players,
             position: player.goal.position,
           });
@@ -579,15 +705,17 @@ io.sockets.on ('connection', function (socket) {
             p.deck.cleanBunch ();
           });
           const time = 4000;
+          bunchCards.forEach (c => (c.position = player.goal.position));
+
           player.deck.addCards (bunchCards);
 
           const playersWin = game.isGameFinish ();
 
           if (playersWin.length > 0) {
-            io.to (roomName).emit ('gameFinish', {playersWin});
+            io.to (roomID).emit ('gameFinish', {playersWin});
           } else {
             const message = `player${player.type} +${bunchCards.length} card noob`;
-            io.to (roomName).emit ('message', {message, time});
+            io.to (roomID).emit ('message', {message, time});
             game.round = player.type;
             player.isPlaying = true;
             player.timer = 0;
@@ -596,25 +724,24 @@ io.sockets.on ('connection', function (socket) {
           setTimeout (() => {
             game.stop = false;
             io
-              .to (roomName)
+              .to (roomID)
               .emit ('update', {...game, bunchCards: true, deck: true});
           }, 2000);
         }
       }
-      io.to (roomName).emit ('update', {players: game.players});
+      io.to (roomID).emit ('update', {players: game.players});
     }
   });
   socket.on ('mouseUp', () => {
-    const roomName = Object.keys (socket.rooms)[1];
-    const room = rooms.find (r => r.name === roomName);
+    const roomID = Object.keys (socket.rooms)[1];
+    const room = roomsServer[roomID];
     const game = room.game;
 
     const {player} = searchPlayer (socket.id, game);
     const totem = game.totem;
-
+    player.click = false;
     // someone drop a card
-    if (player.drawCard.move) {
-      player.drawCard.move = false;
+    if (player.drawCard.move && !player.animationDrawCard) {
       let basePosition = player.goal.position;
       const positionBunch = {
         position: {
@@ -623,43 +750,34 @@ io.sockets.on ('connection', function (socket) {
         radius: 80,
       };
       const checkDropCard = checkCollision (positionBunch, player.drawCard);
+      player.animationDrawCard = true;
       // card go to goal
       if (checkDropCard && player.isPlaying === true && !game.stop) {
-        game.stop = true;
-        io.to (roomName).emit ('animation2', {
+        io.to (roomID).emit ('animation2', {
           players: game.players,
           player,
           position: positionBunch.position,
         });
-        game.nextRound ();
-        player.deck.popCards (positionBunch.position);
         player.drawCard.position = null;
-        basePosition = positionBunch;
-
-        setTimeout (() => {
-          game.stop = false;
-          io.to (roomName).emit ('update', {
-            players: game.players,
-            deck: player.deck,
-            bunchCards: true,
-            card: true,
-          });
-        }, 1000);
+        io.to (roomID).emit ('update', {
+          players: game.players,
+          card: true,
+        });
+        game.nextRound ();
+        player.popDrawCard ();
       } else {
         //card return deck
-        io.to (roomName).emit ('animation2', {
+        io.to (roomID).emit ('animation2', {
           players: game.players,
           player,
           position: basePosition,
         });
-        player.drawCard.position = basePosition;
-
-        setTimeout (() => {
-          io.to (roomName).emit ('update', {
-            players: game.players,
-            card: true,
-          });
-        }, 900);
+        player.drawCard.position = null;
+        io.to (roomID).emit ('update', {
+          players: game.players,
+          card: true,
+        });
+        player.drawCardReturn ();
       }
     }
     // totem return origin
@@ -672,37 +790,33 @@ io.sockets.on ('connection', function (socket) {
           y: height / 2,
         };
         const intervalId = objectReturn (totem, basePosition, 300, () =>
-          io.to (roomName).emit ('update', {totem})
+          io.to (roomID).emit ('update', {totem})
         );
         totem.intervalId = () => clearInterval (intervalId);
       }
     }
     player.setClick (false);
 
-    io.to (roomName).emit ('update', game);
+    io.to (roomID).emit ('update', game);
   });
-  socket.on ('disconnect', () => {
-    const roomName = Object.keys (socket.rooms)[1];
-    const room = rooms.find (r => r.name === roomName);
-    const game = room.game;
+  socket.on ('disco', () => {
+    const roomID = Object.keys (socket.rooms)[1];
 
-    const newGame = new Game ({id: null});
-    console.log ('disco ?');
+    const room = roomsServer[roomID];
+    const game = room.game;
+    game.start = false;
 
     if (game.players.length > 1) {
-      console.log ('un joueur ce deco');
-      const time = 3000;
-      io.to (roomName).emit ('gameStop');
-      const {index} = searchPlayer (socket.id, game);
-      game.players.splice (index, 1);
-      const player = newGame.addPlayer (game.players[0].id);
-      newGame.message = 'someone leave the game, waiting for opponent 1/2';
-      setTimeout (
-        () => io.to (roomName).emit ('gameInit', {player, newGame}),
-        3000
-      );
+      game.message =
+        'someone leave the game, you will be redirect in the lobby';
+      io.to (roomID).emit ('gameStop', {game});
+
+      setTimeout (() => io.to (roomID).emit ('redirect', game), 3000);
     }
-    game = newGame;
+    delete roomsServer[roomID];
+    const roomRef = db.collection ('rooms').doc (roomID);
+
+    roomRef.update ({players: 0});
   });
 });
 module.exports = {app: app, server: server};

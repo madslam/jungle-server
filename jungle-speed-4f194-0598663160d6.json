@@ -1,0 +1,12 @@
+{
+  "type": "service_account",
+  "project_id": "jungle-speed-4f194",
+  "private_key_id": "0598663160d6ca5af4e82c1b0bae533cb85fb246",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCDky11u0eRsJnm\nsVLklhPcDlaxaDFbmDsKPYDySGTFYpv41+dlnlbPkP1JIyOMNE962SbVGqwCB4Mf\ndUN4xV/TLgx8qQzAmc53pEV83ugAnAIRXIXk2Wu5o9A4JEEcXNyAtoRb2UC1J7Lt\neJvsr4gvd9UUOMJlQ7ts5VP3/5UQpUruUWq0yL45ClVEUOpVZX2hiV5uW2aMdNn2\npfA9WQ8cDG5X79/h0NMOjJoAR3IV4dtljFQOWeB06AODpGhLkB+5FEQAZ2tERrsW\n3XTECQCOikAeCKw+/2J4HzKiSOupyo5v2bLZElnZpwDda/6uvVxXkWeKzvwkOMR3\n6z9wsYhfAgMBAAECggEAGPYF7Mzfsfrv530Cfc0e7WNm/PcIThkeMj4ixVQIkg24\nC0hiZLvaOjyGYKai6slNvr+Nh2Ys9aGZNZGYgEPpfvXAdrHXcn57VeU7LYpYNy1h\nkwubdyPsNOan7M6r74aKany1tXsMtJFYd4anBgry6hZwvQpbjrx/xRPojybUj7iW\nT4NOValDluJIC+N2XbqzLvs7ZxLm0nz16hWb8yr7kioOfAEvI74DnwcD15bHxTwV\nlFj971KGSAXKwQXVmmef0qfP0IhYnx5shsX1CR7/EWvGaa5jLUjReN/fvZb/HRTy\npg9lmVsbAGAf3WHRrPlqvi2Wj8X39R95e081OpkB2QKBgQC5ujYrgZ4rJzS61tN4\naw3ob6/hRcOc4MNLv0XLaX2rjqVYJH9oSSJ8hy6n5Mdhb22CG6LWXfmZWtKEiwJV\nJARxtl7FcHbr+/9Bo1FADM0R7cpP2vtUzcmxxjCiNpe8dtw5z5+HokcPy9hkdRDr\nwcdWU85rnsKeb+b1qNvDaxzqSwKBgQC1W7Bi0mZdHq94p++CpsNgCXabJwWT5rXE\nrUkqD+ZecWMJo7m0QdPjKPz9B0nNUcTxe9o/j7XWv+WLreYH3bQyZp71dus5D0N3\nczVRimiBonD/nOmexiUj/KBpOkfZpPWK8W9HQ2GCW9JFZyW+Ysb1seM2niTfxZYC\n4uU40aBNvQKBgQCIGApPsQhMyMrbykVlbNThKM4xfaSMVSrmW39yQZfD2aARSZVO\nvqCVrZ0jjAIJxNPyzftxp6UZmbK/SvlnmB/lj2Q8u195JsvxthH4pCi05ZElGOqo\nRq9wJDFI/EYN5O8VMa3Nfr0htxaW7i17BCDkgj61H72uyYLtKlH3DYs/pwKBgQC1\nTu/9K9k4eUf1uPaiyHOEnJFdtVpHLZxE/vSpP3IQswzPA0bRpgneDQk3MUUgJgJd\nZXOgndytz/T9eqIA9S2EQcHjJrsstUy+q4f/d/7YsvyDH20T1YYl/xajfKd+OANe\nn9afCQb/2ypRRjieqIO999RusxWsPQ2m3w1Ii5HWhQKBgEVOBgm2tBDulVlXK5Sf\nF1TpYemxcCNjdoxOd81kMNwXAL+nHyHc4pajBrA1RLcQ4BEOECaljqRxscAWgDGk\nmbtPI9UrHF9dzgYoi139tJgZla5u5+XAGW8zBUDFeiDbace1t+7eSMZnF+WfocTy\nSYsi99/2sY+YLTgMiS0TO6cM\n-----END PRIVATE KEY-----\n",
+  "client_email": "server@jungle-speed-4f194.iam.gserviceaccount.com",
+  "client_id": "111118074636422922193",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/server%40jungle-speed-4f194.iam.gserviceaccount.com"
+}
