@@ -22,11 +22,9 @@ app.use (express.json ());
 app.use (express.urlencoded ({extended: false}));
 app.use (cookieParser ());
 
-// catch 404 and forward to error handler
-app.use (function (req, res, next) {
-  next (createError (404));
+app.get ('/health', (req, res) => {
+  res.send ('ok');
 });
-
 // error handler
 app.use (function (err, req, res, next) {
   // set locals, only providing error in development
@@ -39,6 +37,7 @@ app.use (function (err, req, res, next) {
 });
 
 var server = require ('http').Server (app);
+
 var socketio = require ('socket.io');
 const io = socketio (server);
 const gameCards = [1, 1, 1, 1, 2, 2];
@@ -64,7 +63,7 @@ class Game {
   addPlayer({id, skin}) {
     this.isAlive = true;
     const type = this.players.length + 1;
-    const goal = new Goal ({type, isPlaying: false});
+    const goal = new Goal ({type});
     const deck = new Deck ();
     const profile = new Profile ({name: 'player ' + type});
     if (type === 1) {
@@ -156,6 +155,7 @@ class Game {
       }
 
       player.addCards (deckPlayer);
+      player.changeHealth ();
     });
   }
   startGame () {
@@ -175,7 +175,11 @@ class Game {
   }
   isGameFinish () {
     const playersWin = this.players.reduce ((winners, p) => {
-      if (p.deck.cards.length === 0 && p.deck.bunchCards.length === 0) {
+      if (
+        p.deck.cards.length === 0 &&
+        p.deck.bunchCards.length === 0 &&
+        p.drawCard.value === null
+      ) {
         return [...winners, p];
       }
       return winners;
@@ -215,12 +219,14 @@ class Card {
   }
 }
 class Profile {
-  constructor({position, name}) {
+  constructor({position, name, isPlaying}) {
     this.position = position;
     this.name = name;
     this.radius = 30;
-    this.health = 0;
+    this.nextHealth = null;
+    this.healt = 0;
     this.isAlive = true;
+    this.isPlaying = false;
   }
 }
 class Player {
@@ -261,6 +267,13 @@ class Player {
   }
   drawCardReturn () {
     this.drawCard.position = this.goal.position;
+    this.deck.cards.push (this.drawCard);
+    this.drawCard = new Card ({
+      position: null,
+      show: false,
+      move: false,
+      value: null,
+    });
   }
   popDrawCard () {
     this.drawCard.show = true;
@@ -280,14 +293,23 @@ class Player {
     });
 
     this.deck.cards = [...newCards, ...this.deck.cards];
-    this.profile.health = this.deck.cards.length / gameCards.length * 100;
+    this.profile.nextHealth = Math.round (
+      this.deck.cards.length / gameCards.length * 100
+    );
   }
 
   addBunchCard (card) {
     card.position = this.deck.positionBunch;
     this.deck.bunchCards.push (card);
     this.deck.cardPlayed = card;
-    this.profile.health = this.deck.cards.length / gameCards.length * 100;
+    this.profile.nextHealth = Math.round (
+      this.deck.cards.length / gameCards.length * 100
+    );
+  }
+
+  changeHealth () {
+    this.profile.health = this.profile.nextHealth;
+    this.profile.nextHealth = null;
   }
 }
 class Deck {
@@ -310,11 +332,10 @@ class Deck {
   }
 }
 class Goal {
-  constructor({type, isPlaying, position}) {
+  constructor({type, position}) {
     this.position = position;
     this.type = type;
     this.radius = 50;
-    this.isPlaying = isPlaying;
     this.totemIn = false;
     this.timer = 0;
   }
@@ -564,7 +585,8 @@ io.sockets.on ('connection', async socket => {
             playersLost,
           });
           game.stop = true;
-          game.players.forEach (p => {
+          const {players} = game;
+          players.forEach (p => {
             p.isPlaying = false;
           });
           player.deck.cleanBunch ();
@@ -574,6 +596,13 @@ io.sockets.on ('connection', async socket => {
             const cardsForLooser = [...cardsLooser[index]];
 
             p.addCards (cardsForLooser);
+          });
+          io.to (roomID).emit ('animationHealth', {
+            players: game.players,
+            profile: true,
+          });
+          playersLost.forEach (p => {
+            p.changeHealth ();
           });
 
           const playersWin = game.isGameFinish ();
@@ -599,15 +628,24 @@ io.sockets.on ('connection', async socket => {
       }
       io.to (roomID).emit ('update', {totem: game.totem});
     }
+    //move player
+    player.setPosition ({x, y});
     //someone moove a card
     if (player.drawCard.move && !player.animationDrawCard && player.click) {
       player.drawCard.position = {x, y};
-      io.to (roomID).emit ('update', {card: true, players: game.players});
+      io.to (roomID).emit ('update', {
+        players: game.players,
+        drawCard: true,
+        playersMove: true,
+      });
+    } else {
+      io.to (roomID).emit ('update', {
+        players: game.players,
+        playersMove: true,
+      });
     }
-    player.setPosition ({x, y});
-    io.to (roomID).emit ('update', {players: game.players});
   });
-  socket.on ('animationDone', player => {
+  socket.on ('animationDrawCardDone', player => {
     const roomID = Object.keys (socket.rooms)[1];
     const room = roomsServer[roomID];
     const game = room.game;
@@ -617,9 +655,9 @@ io.sockets.on ('connection', async socket => {
     playerDropCard.animationDrawCard = false;
 
     io.to (roomID).emit ('update', {
-      deck: true,
       bunchCards: true,
-      card: true,
+      cards: true,
+      profile: true,
       players: game.players,
     });
   });
@@ -629,7 +667,12 @@ io.sockets.on ('connection', async socket => {
     const room = roomsServer[roomID];
     const game = room.game;
     game.stop = false;
-    io.to (roomID).emit ('update', {...game, bunchCards: true, deck: true});
+    io.to (roomID).emit ('update', {
+      players: game.players,
+      cards: true,
+      profile: true,
+      drawCard: true,
+    });
   });
   socket.on ('setSkin', skin => {
     const roomID = Object.keys (socket.rooms)[1];
@@ -661,10 +704,9 @@ io.sockets.on ('connection', async socket => {
       ) {
         player.getDrawCard ();
         io.to (roomID).emit ('update', {
-          ...game,
           players: game.players,
-          card: true,
-          goal: true,
+          drawCard: true,
+          cards: true,
         });
       } else {
         const checkMoveTotem = checkCollision (player, game.totem);
@@ -693,7 +735,10 @@ io.sockets.on ('connection', async socket => {
             const time = 4000;
 
             player.addCards (bunchCards);
-
+            io.to (roomID).emit ('animationHealth', {
+              players: game.players,
+            });
+            player.changeHealth ();
             const playersWin = game.isGameFinish ();
 
             if (playersWin.length > 0) {
@@ -714,7 +759,7 @@ io.sockets.on ('connection', async socket => {
           }
         }
       }
-      io.to (roomID).emit ('update', {players: game.players});
+      // io.to (roomID).emit ('update', {players: game.players});
     }
   });
   socket.on ('mouseUp', () => {
@@ -738,7 +783,7 @@ io.sockets.on ('connection', async socket => {
       player.animationDrawCard = true;
       // card go to goal
       if (checkDropCard && player.isPlaying === true && !game.stop) {
-        io.to (roomID).emit ('animation2', {
+        io.to (roomID).emit ('animationDrawCard', {
           players: game.players,
           player,
           position: positionBunch.position,
@@ -748,17 +793,22 @@ io.sockets.on ('connection', async socket => {
 
         io.to (roomID).emit ('update', {
           players: game.players,
-          card: true,
+          drawCard: true,
         });
+        player.popDrawCard ();
+        io.to (roomID).emit ('animationHealth', {
+          players: game.players,
+        });
+        player.changeHealth ();
+
         if (game.isGameEgality ()) {
           io.to (roomID).emit ('gameEgality');
           return;
         }
         game.nextRound ();
-        player.popDrawCard ();
       } else {
         //card return deck
-        io.to (roomID).emit ('animation2', {
+        io.to (roomID).emit ('animationDrawCard', {
           players: game.players,
           player,
           position: basePosition,
@@ -766,7 +816,7 @@ io.sockets.on ('connection', async socket => {
         player.drawCard.position = null;
         io.to (roomID).emit ('update', {
           players: game.players,
-          card: true,
+          drawCard: true,
         });
         player.drawCardReturn ();
       }
@@ -788,7 +838,7 @@ io.sockets.on ('connection', async socket => {
     }
     player.setClick (false);
 
-    io.to (roomID).emit ('update', game);
+    //  io.to (roomID).emit ('update', game);
   });
 
   socket.on ('disconnect', function () {
@@ -807,7 +857,8 @@ io.sockets.on ('connection', async socket => {
     player.profile.isAlive = false;
     io.to (roomID).emit ('update', {
       players: game.players,
-      deck: true,
+      drawCard: true,
+      profile: true,
     });
     const deletegame = game.players.every (p => !p.isAlive);
     if (deletegame) {
