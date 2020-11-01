@@ -45,6 +45,7 @@ class Game {
   constructor({id}) {
     this.id = id;
     this.players = [];
+    this.playerPlay = null;
     this.width = 900;
     this.height = 900;
     this.gameCards = [...gameCards];
@@ -162,6 +163,7 @@ class Game {
     this.distributeCards ();
     this.round = 1;
     this.players[this.round - 1].isPlaying = true;
+    this.playerPlay = this.players[this.round - 1];
     this.start = true;
   }
   isGameEgality () {
@@ -200,6 +202,7 @@ class Game {
       this.round = newRound;
 
       nextPlayer.isPlaying = true;
+      this.playerPlay = nextPlayer;
       return nextPlayer;
     } else {
       this.round = newRound;
