@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "babel-node ./bin/www",
-    "start-uws": "babel-node uws.js",
+    "uws": "babel-node uws.js",
     "deploy-prod": "scp -r ./app.js root@159.65.115.34:/root/jungle-server/"
   },
   "dependencies": {
@@ -20,8 +20,8 @@
     "morgan": "~1.9.1",
     "nodemon": "^2.0.6",
     "socket.io": "^2.3.0",
-    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v18.8.0",
-    "uuid": "^8.3.1"
+    "uuid": "^8.3.1",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v18.8.0"
   },
   "devDependencies": {
     "express-reload": "^1.2.0"
